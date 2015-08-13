@@ -386,6 +386,7 @@ Dash.dependencies.DashParser = function () {
                 xlinkController.setIron(iron);
 
                 this.log("Parsing complete: ( xml2json: " + (json.getTime() - start.getTime()) + "ms, objectiron: " + (ironed.getTime() - json.getTime()) + "ms, total: " + ((ironed.getTime() - start.getTime()) / 1000) + "s)");
+                //console.log("manifest: ", manifest);
             } catch (err) {
                 this.errHandler.manifestError("parsing the manifest failed", "parse", data);
                 return null;

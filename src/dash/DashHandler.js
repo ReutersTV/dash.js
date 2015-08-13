@@ -550,28 +550,42 @@ Dash.dependencies.DashHandler = function () {
                 periodSegIdx,
                 seg,
                 s,
-                range,
                 startIdx,
                 endIdx,
-                start;
+                start,
+                segStartTime;
 
             start = representation.startNumber;
 
-            range = decideSegmentListRangeForTemplate.call(self, representation);
-            startIdx = Math.max(range.start, 0);
-            endIdx = Math.min(range.end, list.SegmentURL_asArray.length - 1);
+            /* RTV: if no list duration, assume time-based segments. */
+            /* XXX Can revisit endIdx in loop w/segStartTime. */
+            if (isNaN(representation.segmentDuration) && !isDynamic) {
+                startIdx = 0;
+                endIdx = list.SegmentURL_asArray.length - 1;
 
+            /* Regular duration attribute on SegmentList. */
+            } else {
+                var range = decideSegmentListRangeForTemplate.call(self, representation);
+                startIdx = Math.max(range.start, 0);
+                endIdx = Math.min(range.end, list.SegmentURL_asArray.length - 1);
+            }
+
+            segStartTime = 0;
             for (periodSegIdx = startIdx; periodSegIdx <= endIdx; periodSegIdx += 1) {
                 s = list.SegmentURL_asArray[periodSegIdx];
 
-                seg = getIndexBasedSegment.call(
-                    self,
-                    representation,
-                    periodSegIdx);
+                if (isNaN(representation.segmentDuration) && !isDynamic) {
+                    seg = getTimeBasedSegment.call(self, representation, segStartTime, s.d, representation.timescale,
+                              s.media ? s.media : baseURL, s.mediaRange, periodSegIdx);
+                    segStartTime += s.d;
 
-                seg.replacementTime = (start + periodSegIdx - 1) * representation.segmentDuration;
-                seg.media = s.media ? s.media : baseURL;
-                seg.mediaRange = s.mediaRange;
+                } else {
+                    seg = getIndexBasedSegment.call(self, representation, periodSegIdx);
+                    seg.replacementTime = (start + periodSegIdx - 1) * representation.segmentDuration;
+                    seg.media = s.media ? s.media : baseURL;
+                    seg.mediaRange = s.mediaRange;
+                }
+
                 seg.index = s.index;
                 seg.indexRange = s.indexRange;
 
@@ -897,7 +911,7 @@ Dash.dependencies.DashHandler = function () {
             } else {
                 getSegments.call(self, representation);
                 //self.log("Got segments.");
-                //self.log(segments);
+                //console.log("segments: ", representation.segments);
                 segment = getSegmentByIndex(idx, representation);
                 request = getRequestForSegment.call(self, segment);
             }
