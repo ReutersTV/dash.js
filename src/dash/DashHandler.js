@@ -184,6 +184,7 @@ Dash.dependencies.DashHandler = function () {
                 period = representation.adaptation.period,
                 isFinished = false,
                 seg,
+                segmentInfoType = representation.segmentInfoType,
                 fTime;
 
             if (index < 0) {
@@ -195,7 +196,7 @@ Dash.dependencies.DashHandler = function () {
                     fTime = seg.presentationStartTime - period.start;
                     sDuration = representation.adaptation.period.duration;
                     this.log(representation.segmentInfoType + ": " + fTime + " / " + sDuration);
-                    isFinished = (fTime >= sDuration);
+                    isFinished = segmentInfoType === "SegmentTimeline" ? false : (fTime >= sDuration);
                 }
             } else {
                 isFinished = true;
@@ -267,6 +268,7 @@ Dash.dependencies.DashHandler = function () {
                 calculatedRange,
                 hasEnoughSegments,
                 requiredMediaTime,
+                isStartSegmentForRequestedTimeFound = false,
                 startIdx,
                 endIdx,
                 fTimescale,
@@ -318,7 +320,8 @@ Dash.dependencies.DashHandler = function () {
                     if (nextFrag && nextFrag.hasOwnProperty("t")) {
                         repeatEndTime = nextFrag.t / fTimescale;
                     } else {
-                        repeatEndTime = self.timelineConverter.calcMediaTimeFromPresentationTime(representation.segmentAvailabilityRange.end, representation);
+                        var availabilityEnd = representation.segmentAvailabilityRange ? representation.segmentAvailabilityRange.end : (this.timelineConverter.calcSegmentAvailabilityRange(representation, isDynamic).end);
+                        repeatEndTime = self.timelineConverter.calcMediaTimeFromPresentationTime(availabilityEnd, representation);
                         representation.segmentDuration = frag.d / fTimescale;
                     }
 
@@ -353,7 +356,15 @@ Dash.dependencies.DashHandler = function () {
                             continue;
                         }
 
-                        if (scaledTime >= (requiredMediaTime - (frag.d / fTimescale))) {
+                        // In some cases when requiredMediaTime = actual end time of the last segment
+                        // it is possible that this time a bit exceeds the declared end time of the last segment.
+                        // in this case we still need to include the last segment in the segment list. to do this we
+                        // use a correction factor = 1.5. This number is used because the largest possible deviation is
+                        // is 50% of segment duration.
+                        if (isStartSegmentForRequestedTimeFound) {
+                            segments.push(createSegment.call(self, frag));
+                        }  else if (scaledTime >= (requiredMediaTime - (frag.d / fTimescale)*1.5)) {
+                            isStartSegmentForRequestedTimeFound = true;
                             segments.push(createSegment.call(self, frag));
                         }
                     }
@@ -446,7 +457,12 @@ Dash.dependencies.DashHandler = function () {
 
             periodRelativeRange.start = Math.max(periodRelativeRange.start, 0);
 
-            if (isDynamic && !self.timelineConverter.isTimeSyncCompleted()) {
+            // I can't see any reason why we should just look at
+            // anything but the full range, if we've seeked or
+            // otherwise, just looking in already downloaded segments
+            // as the code below this does doesn't make sense, so
+            // we're going with just the whole range always.
+            if (true || isDynamic && !self.timelineConverter.isTimeSyncCompleted()) {
                 start = Math.floor(periodRelativeRange.start / duration);
                 end = Math.floor(periodRelativeRange.end / duration);
                 range = {start: start, end: end};
@@ -667,7 +683,7 @@ Dash.dependencies.DashHandler = function () {
             representation.segmentAvailabilityRange = self.timelineConverter.calcSegmentAvailabilityRange(representation, isDynamic);
 
             if ((representation.segmentAvailabilityRange.end < representation.segmentAvailabilityRange.start) && !representation.useCalculatedLiveEdgeTime) {
-                error = new MediaPlayer.vo.Error(Dash.dependencies.DashHandler.SEGMENTS_UNAVAILABLE_ERROR_CODE, "no segments are available yet", {availabilityDelay: Math.abs(representation.segmentAvailabilityRange.end)});
+                error = new MediaPlayer.vo.Error(Dash.dependencies.DashHandler.SEGMENTS_UNAVAILABLE_ERROR_CODE, "no segments are available yet", {availabilityDelay: representation.segmentAvailabilityRange.start - representation.segmentAvailabilityRange.end});
                 self.notify(Dash.dependencies.DashHandler.eventList.ENAME_REPRESENTATION_UPDATED, {representation: representation}, error);
                 return;
             }
@@ -747,10 +763,16 @@ Dash.dependencies.DashHandler = function () {
                 seg,
                 i;
 
+            if (index<ln) {
+                seg=representation.segments[index];
+                if (seg && seg.availabilityIdx === index) {
+                    return seg;
+                }
+            }
+
             for (i = 0; i < ln; i += 1) {
                 seg = representation.segments[i];
-
-                if (seg.availabilityIdx === index) {
+                if (seg && seg.availabilityIdx === index) {
                     return seg;
                 }
             }
@@ -888,7 +910,7 @@ Dash.dependencies.DashHandler = function () {
             //self.log("Getting the next request.");
 
             if (index === -1) {
-                throw "You must call getSegmentRequestForTime first.";
+                return null;
             }
 
             requestedTime = null;

@@ -31,7 +31,7 @@
 MediaPlayer.dependencies.PlaybackController = function () {
     "use strict";
 
-    var WALLCLOCK_TIME_UPDATE_INTERVAL = 1000,
+    var WALLCLOCK_TIME_UPDATE_INTERVAL = 100, //This value influences the startup time for live.
         currentTime = 0,
         liveStartTime = NaN,
         wallclockTimeIntervalId = null,
@@ -45,7 +45,7 @@ MediaPlayer.dependencies.PlaybackController = function () {
 
         getStreamStartTime = function (streamInfo) {
             var presentationStartTime,
-                startTimeOffset = parseInt(this.uriQueryFragModel.getURIFragmentData().s);
+                startTimeOffset = parseInt(this.uriQueryFragModel.getURIFragmentData().s,10);
 
             if (isDynamic) {
 
@@ -70,6 +70,10 @@ MediaPlayer.dependencies.PlaybackController = function () {
             }
 
             return presentationStartTime;
+        },
+
+        getInitialTime = function (streamInfo) {
+            return videoModel.getCurrentTime() || getStreamStartTime.call(this, streamInfo);
         },
 
         getActualPresentationTime = function(currentTime) {
@@ -109,7 +113,8 @@ MediaPlayer.dependencies.PlaybackController = function () {
         initialStart = function() {
             if (firstAppended[streamInfo.id] || this.isSeeking()) return;
 
-            var initialSeekTime = getStreamStartTime.call(this, streamInfo);
+            // if the video model already has a current time.
+            var initialSeekTime = getInitialTime.call(this, streamInfo);
             this.log("Starting playback at offset: " + initialSeekTime);
             this.notify(MediaPlayer.dependencies.PlaybackController.eventList.ENAME_PLAYBACK_SEEKING, {seekTime: initialSeekTime});
         },
@@ -179,7 +184,7 @@ MediaPlayer.dependencies.PlaybackController = function () {
 
         onPlaybackPaused = function() {
             this.log("<video> pause");
-            this.notify(MediaPlayer.dependencies.PlaybackController.eventList.ENAME_PLAYBACK_PAUSED);
+            this.notify(MediaPlayer.dependencies.PlaybackController.eventList.ENAME_PLAYBACK_PAUSED, {ended: videoModel.hasEnded()});
         },
 
         onPlaybackSeeking = function() {
@@ -200,7 +205,7 @@ MediaPlayer.dependencies.PlaybackController = function () {
             if (time === currentTime) return;
 
             currentTime = time;
-            this.notify(MediaPlayer.dependencies.PlaybackController.eventList.ENAME_PLAYBACK_TIME_UPDATED, {timeToEnd: this.getTimeToStreamEnd()});
+            this.notify(MediaPlayer.dependencies.PlaybackController.eventList.ENAME_PLAYBACK_TIME_UPDATED, {timeToEnd: this.getTimeToStreamEnd(), time: time});
         },
 
         onPlaybackProgress = function() {
@@ -216,12 +221,14 @@ MediaPlayer.dependencies.PlaybackController = function () {
                 remainingUnbufferedDuration = getStreamStartTime.call(this, streamInfo) + streamInfo.duration - bufferEndTime;
             }
 
-            this.notify(MediaPlayer.dependencies.PlaybackController.eventList.ENAME_PLAYBACK_PROGRESS, {bufferedRanges: videoModel.getElement().buffered, remainingUnbufferedDuration: remainingUnbufferedDuration});
+            this.notify(MediaPlayer.dependencies.PlaybackController.eventList.ENAME_PLAYBACK_PROGRESS, {bufferedRanges: ranges, remainingUnbufferedDuration: remainingUnbufferedDuration});
         },
 
         onPlaybackRateChanged = function() {
-            this.log("<video> ratechange: ", this.getPlaybackRate());
-            this.notify(MediaPlayer.dependencies.PlaybackController.eventList.ENAME_PLAYBACK_RATE_CHANGED);
+            var rate = this.getPlaybackRate();
+
+            this.log("<video> ratechange: ", rate);
+            this.notify(MediaPlayer.dependencies.PlaybackController.eventList.ENAME_PLAYBACK_RATE_CHANGED, {playbackRate: rate});
         },
 
         onPlaybackMetaDataLoaded = function() {
@@ -259,7 +266,7 @@ MediaPlayer.dependencies.PlaybackController = function () {
                 sp = e.sender.streamProcessor,
                 type = sp.getType(),
                 stream = this.system.getObject("streamController").getStreamById(streamInfo.id),
-                streamStart = getStreamStartTime.call(this, streamInfo),
+                streamStart = getInitialTime.call(this, streamInfo),
                 startRequest = this.adapter.getFragmentRequestForTime(sp, sp.getCurrentRepresentationInfo(), streamStart, {ignoreIsFinished: true}),
                 startIdx = startRequest ? startRequest.index : null,
                 currentEarliestTime = commonEarliestTime[id];
@@ -280,10 +287,16 @@ MediaPlayer.dependencies.PlaybackController = function () {
             // time exceeds the common earliest time
             if ((currentEarliestTime === commonEarliestTime[id] && (time === currentEarliestTime)) || !firstAppended[id] || !firstAppended[id].ready || (time > commonEarliestTime[id])) return;
 
-            // seek to the start of buffered range to avoid stalling caused by a shift between audio and video media time
-            this.seek(commonEarliestTime[id]);
-            // prevents seeking the second time for the same Period
-            firstAppended[id].seekCompleted = true;
+            // reset common earliest time every time user seeks
+            // to avoid mismatches when buffers have been discarded/pruned
+            if (this.isSeeking()) {
+                commonEarliestTime = {};
+            } else {
+                // seek to the max of period start or start of buffered range to avoid stalling caused by a shift between audio and video media time                
+                this.seek(Math.max(commonEarliestTime[id], streamStart));
+                // prevents seeking the second time for the same Period
+                firstAppended[id].seekCompleted = true;
+            }
         },
 
         onBufferLevelStateChanged = function(e) {
@@ -363,10 +376,21 @@ MediaPlayer.dependencies.PlaybackController = function () {
          */
         getStreamStartTime: getStreamStartTime,
 
+        /**
+         * @param streamInfo object
+         * @returns {Number} object
+         * @memberof PlaybackController#
+         */
+        getInitialTime: getInitialTime,
+
         getTimeToStreamEnd: function() {
             var currentTime = videoModel.getCurrentTime();
 
             return ((getStreamStartTime.call(this, streamInfo) + streamInfo.duration) - currentTime);
+        },
+
+        isPlaybackStarted: function() {
+            return this.getTime() > 0;
         },
 
         getStreamId: function() {
@@ -387,6 +411,10 @@ MediaPlayer.dependencies.PlaybackController = function () {
 
         getPlayedRanges: function() {
             return videoModel.getElement().played;
+        },
+
+        getIsDynamic: function(){
+            return isDynamic;
         },
 
         setLiveStartTime: function(value) {
