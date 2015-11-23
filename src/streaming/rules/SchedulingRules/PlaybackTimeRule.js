@@ -51,6 +51,7 @@ MediaPlayer.rules.PlaybackTimeRule = function () {
         sourceBufferExt: undefined,
         virtualBuffer: undefined,
         playbackController: undefined,
+        textSourceBuffer:undefined,
 
         setup: function() {
             this[MediaPlayer.dependencies.PlaybackController.eventList.ENAME_PLAYBACK_SEEKING] = onPlaybackSeeking;
@@ -89,17 +90,19 @@ MediaPlayer.rules.PlaybackTimeRule = function () {
 
             time = hasSeekTarget ? st : ((useRejected ? (rejected.startTime) : currentTime));
 
-            if (rejected) {
-                sc.getFragmentModel().removeRejectedRequest(rejected);
-            }
-
-            if (isNaN(time)) {
+            // limit proceeding index handler to max buffer -> limit pending requests queue
+            if (!hasSeekTarget && !rejected && (!isNaN(time) && (time > playbackTime + MediaPlayer.dependencies.BufferController.BUFFER_TIME_AT_TOP_QUALITY))) {
                 callback(new MediaPlayer.rules.SwitchRequest(null, p));
                 return;
             }
 
-            if (hasSeekTarget) {
-                seekTarget[mediaType] = null;
+            if (rejected) {
+                sc.getFragmentModel().removeRejectedRequest(rejected);
+            }
+
+            if (isNaN(time) || (mediaType === "fragmentedText" && this.textSourceBuffer.getAllTracksAreDisabled())) {
+                callback(new MediaPlayer.rules.SwitchRequest(null, p));
+                return;
             }
 
             if (buffer) {
@@ -118,18 +121,16 @@ MediaPlayer.rules.PlaybackTimeRule = function () {
                 request = this.adapter.getFragmentRequestForTime(streamProcessor, representationInfo, rejected.startTime + (rejected.duration / 2) + EPSILON, {keepIdx: keepIdx, timeThreshold: 0});
             }
 
-            while (request && streamProcessor.getFragmentModel().isFragmentLoadedOrPending(request)) {
-                if (request.action === "complete") {
-                    request = null;
-                    streamProcessor.setIndexHandlerTime(NaN);
-                    break;
-                }
-
+            while (request && streamProcessor.getFragmentModel().isFragmentLoadedOrPendingAndNotDiscarded(request)) {
                 request = this.adapter.getNextFragmentRequest(streamProcessor, representationInfo);
             }
 
             if (request && !useRejected) {
                 streamProcessor.setIndexHandlerTime(request.startTime + request.duration);
+            }
+
+            if (request && hasSeekTarget) {
+                seekTarget[mediaType] = null;
             }
 
             callback(new MediaPlayer.rules.SwitchRequest(request, p));

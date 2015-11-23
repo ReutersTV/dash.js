@@ -94,7 +94,9 @@ app.directive('chart', function() {
 
 app.controller('DashController', function($scope, Sources, Notes, Contributors, PlayerLibraries, ShowcaseLibraries) {
     var player,
+        controlbar,
         video,
+        ttmlDiv,
         context,
         videoSeries = [],
         audioSeries = [],
@@ -139,17 +141,23 @@ app.controller('DashController', function($scope, Sources, Notes, Contributors, 
 
     $scope.getVideoTreeMetrics = function () {
         var metrics = player.getMetricsFor("video");
-        $scope.videoMetrics = converter.toTreeViewDataSource(metrics);
+        if (metrics) {
+            $scope.videoMetrics = converter.toTreeViewDataSource(metrics);
+        }
     }
 
     $scope.getAudioTreeMetrics = function () {
         var metrics = player.getMetricsFor("audio");
-        $scope.audioMetrics = converter.toTreeViewDataSource(metrics);
+        if (metrics) {
+            $scope.audioMetrics = converter.toTreeViewDataSource(metrics);
+        }
     }
 
     $scope.getStreamTreeMetrics = function () {
         var metrics = player.getMetricsFor("stream");
-        $scope.streamMetrics = converter.toTreeViewDataSource(metrics);
+        if (metrics) {
+            $scope.streamMetrics = converter.toTreeViewDataSource(metrics);
+        }
     }
 
     // from: https://gist.github.com/siongui/4969449
@@ -178,6 +186,7 @@ app.controller('DashController', function($scope, Sources, Notes, Contributors, 
             movingDownload = {},
             movingRatio = {},
             droppedFramesValue = 0,
+            requestsQueue,
             fillmoving = function(type, Requests){
                 var requestWindow,
                     downloadTimes,
@@ -193,27 +202,27 @@ app.controller('DashController', function($scope, Sources, Notes, Contributors, 
                     latencyTimes = requestWindow.map(function (req){ return Math.abs(req.tresponse.getTime() - req.trequest.getTime()) / 1000;});
 
                     movingLatency[type] = {
-                        average: latencyTimes.reduce(function(l, r) {return l + r;}) / latencyTimes.length, 
-                        high: latencyTimes.reduce(function(l, r) {return l < r ? r : l;}), 
-                        low: latencyTimes.reduce(function(l, r) {return l < r ? l : r;}), 
+                        average: latencyTimes.reduce(function(l, r) {return l + r;}) / latencyTimes.length,
+                        high: latencyTimes.reduce(function(l, r) {return l < r ? r : l;}),
+                        low: latencyTimes.reduce(function(l, r) {return l < r ? l : r;}),
                         count: latencyTimes.length
                     };
 
                     downloadTimes = requestWindow.map(function (req){ return Math.abs(req.tfinish.getTime() - req.tresponse.getTime()) / 1000;});
 
                     movingDownload[type] = {
-                        average: downloadTimes.reduce(function(l, r) {return l + r;}) / downloadTimes.length, 
-                        high: downloadTimes.reduce(function(l, r) {return l < r ? r : l;}), 
-                        low: downloadTimes.reduce(function(l, r) {return l < r ? l : r;}), 
+                        average: downloadTimes.reduce(function(l, r) {return l + r;}) / downloadTimes.length,
+                        high: downloadTimes.reduce(function(l, r) {return l < r ? r : l;}),
+                        low: downloadTimes.reduce(function(l, r) {return l < r ? l : r;}),
                         count: downloadTimes.length
                     };
 
                     durationTimes = requestWindow.map(function (req){ return req.mediaduration;});
 
                     movingRatio[type] = {
-                        average: (durationTimes.reduce(function(l, r) {return l + r;}) / downloadTimes.length) / movingDownload[type].average, 
-                        high: durationTimes.reduce(function(l, r) {return l < r ? r : l;}) / movingDownload[type].low, 
-                        low: durationTimes.reduce(function(l, r) {return l < r ? l : r;}) / movingDownload[type].high, 
+                        average: (durationTimes.reduce(function(l, r) {return l + r;}) / downloadTimes.length) / movingDownload[type].average,
+                        high: durationTimes.reduce(function(l, r) {return l < r ? r : l;}) / movingDownload[type].low,
+                        low: durationTimes.reduce(function(l, r) {return l < r ? l : r;}) / movingDownload[type].high,
                         count: durationTimes.length
                     };
                 }
@@ -224,6 +233,7 @@ app.controller('DashController', function($scope, Sources, Notes, Contributors, 
             bufferLevel = metricsExt.getCurrentBufferLevel(metrics);
             httpRequests = metricsExt.getHttpRequests(metrics);
             droppedFramesMetrics = metricsExt.getCurrentDroppedFrames(metrics);
+            requestsQueue = metricsExt.getRequestsQueue(metrics);
 
             fillmoving("video", httpRequests);
             fillmoving("audio", httpRequests);
@@ -240,7 +250,7 @@ app.controller('DashController', function($scope, Sources, Notes, Contributors, 
             numBitratesValue = metricsExt.getMaxIndexForBufferType(type, streamIdx);
 
             if (bufferLevel !== null) {
-                bufferLengthValue = bufferLevel.level.toPrecision(5);
+                bufferLengthValue = (bufferLevel.level / 1000).toPrecision(5);
             }
 
             if (droppedFramesMetrics !== null) {
@@ -274,7 +284,8 @@ app.controller('DashController', function($scope, Sources, Notes, Contributors, 
                 droppedFramesValue: droppedFramesValue,
                 movingLatency: movingLatency,
                 movingDownload: movingDownload,
-                movingRatio: movingRatio
+                movingRatio: movingRatio,
+                requestsQueue: requestsQueue
             }
         }
         else {
@@ -391,7 +402,14 @@ app.controller('DashController', function($scope, Sources, Notes, Contributors, 
     function metricChanged(e) {
         var metrics,
             point,
-            treeData;
+            treeData,
+            bufferedRanges = [];
+
+        // get current buffered ranges of video element and keep them up to date
+        for (var i = 0; i < video.buffered.length; i += 1) {
+            bufferedRanges.push(video.buffered.start(i) + ' - ' + video.buffered.end(i));
+        }
+        $scope.bufferedRanges = bufferedRanges;
 
         if (e.data.stream == "video") {
             metrics = getCribbedMetricsFor("video");
@@ -402,6 +420,7 @@ app.controller('DashController', function($scope, Sources, Notes, Contributors, 
                 $scope.videoMaxIndex = metrics.numBitratesValue;
                 $scope.videoBufferLength = metrics.bufferLengthValue;
                 $scope.videoDroppedFrames = metrics.droppedFramesValue;
+                $scope.videoRequestsQueue = metrics.requestsQueue;
                 if (metrics.movingLatency["video"]) {
                     $scope.videoLatencyCount = metrics.movingLatency["video"].count;
                     $scope.videoLatency = metrics.movingLatency["video"].low.toFixed(3) + " < " + metrics.movingLatency["video"].average.toFixed(3) + " < " + metrics.movingLatency["video"].high.toFixed(3);
@@ -433,6 +452,7 @@ app.controller('DashController', function($scope, Sources, Notes, Contributors, 
                 $scope.audioMaxIndex = metrics.numBitratesValue;
                 $scope.audioBufferLength = metrics.bufferLengthValue;
                 $scope.audioDroppedFrames = metrics.droppedFramesValue;
+                $scope.audioRequestsQueue = metrics.requestsQueue;
                 if (metrics.movingLatency["audio"]) {
                     $scope.audioLatencyCount = metrics.movingLatency["audio"].count;
                     $scope.audioLatency = metrics.movingLatency["audio"].low.toFixed(3) + " < " + metrics.movingLatency["audio"].average.toFixed(3) + " < " + metrics.movingLatency["audio"].high.toFixed(3);
@@ -543,6 +563,7 @@ app.controller('DashController', function($scope, Sources, Notes, Contributors, 
     video = document.querySelector(".dash-video-player video");
     context = new Dash.di.DashContext();
     player = new MediaPlayer(context);
+
     $scope.version = player.getVersion();
 
     player.startup();
@@ -551,9 +572,17 @@ app.controller('DashController', function($scope, Sources, Notes, Contributors, 
     player.addEventListener(MediaPlayer.events.METRIC_UPDATED, metricUpdated.bind(this));
     player.addEventListener(MediaPlayer.events.STREAM_SWITCH_COMPLETED, streamSwitch.bind(this));
     player.addEventListener(MediaPlayer.events.STREAM_INITIALIZED, streamInitialized.bind(this));
-
     player.attachView(video);
+    player.attachVideoContainer(document.getElementById("videoContainer"));
+
+    // Add HTML-rendered TTML subtitles
+    ttmlDiv = document.querySelector("#video-caption");
+    player.attachTTMLRenderingDiv(ttmlDiv);
+
     player.setAutoPlay(true);
+    controlbar = new ControlBar(player);
+    controlbar.initialize();
+    controlbar.disable() //controlbar.hide() // other option
 
     ////////////////////////////////////////
     //
@@ -638,6 +667,9 @@ app.controller('DashController', function($scope, Sources, Notes, Contributors, 
         }
         player.attachSource($scope.selectedItem.url, null, protData);
         player.setAutoSwitchQuality($scope.abrEnabled);
+        controlbar.reset();
+        controlbar.enable();
+
         if ($scope.initialSettings.audio) {
             player.setInitialMediaSettingsFor("audio", {lang: $scope.initialSettings.audio});
         }
@@ -674,28 +706,28 @@ app.controller('DashController', function($scope, Sources, Notes, Contributors, 
     }
 
     // Get initial stream if it was passed in.
-	var paramUrl = null;
+    var paramUrl = null;
 
     if (vars && vars.hasOwnProperty("url")) {
-    	paramUrl = vars.url;
+        paramUrl = vars.url;
     }
 
     if (vars && vars.hasOwnProperty("mpd")) {
-    	paramUrl = vars.mpd;
+        paramUrl = vars.mpd;
     }
 
     if (paramUrl !== null) {
-    	var startPlayback = true;
-    
-    	$scope.selectedItem = {};
+        var startPlayback = true;
+
+        $scope.selectedItem = {};
         $scope.selectedItem.url = paramUrl;
 
         if (vars.hasOwnProperty("autoplay")) {
-        	startPlayback = (vars.autoplay === 'true');
+            startPlayback = (vars.autoplay === 'true');
         }
 
-    	if (startPlayback) {
-	    	$scope.doLoad();
-		}
+        if (startPlayback) {
+            $scope.doLoad();
+        }
     }
 });
