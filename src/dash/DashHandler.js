@@ -214,8 +214,8 @@ Dash.dependencies.DashHandler = function () {
             duration = representation.segmentDuration;
 
             /*
-             * From spec - If neither @duration attribute nor SegmentTimeline element is present, then the Representation 
-             * shall contain exactly one Media Segment. The MPD start time is 0 and the MPD duration is obtained 
+             * From spec - If neither @duration attribute nor SegmentTimeline element is present, then the Representation
+             * shall contain exactly one Media Segment. The MPD start time is 0 and the MPD duration is obtained
              * in the same way as for the last Media Segment in the Representation.
              */
             if (isNaN(duration)) {
@@ -553,7 +553,9 @@ Dash.dependencies.DashHandler = function () {
                 startIdx,
                 endIdx,
                 start,
-                segStartTime;
+                //RTV INPLEMENTATION
+                segStartTime, //
+                RTVsegStartTime; //
 
             start = representation.startNumber;
 
@@ -574,12 +576,13 @@ Dash.dependencies.DashHandler = function () {
             for (periodSegIdx = startIdx; periodSegIdx <= endIdx; periodSegIdx += 1) {
                 s = list.SegmentURL_asArray[periodSegIdx];
 
-                if (isNaN(representation.segmentDuration) && !isDynamic) {
-                    seg = getTimeBasedSegment.call(self, representation, segStartTime, s.d, representation.timescale,
-                              s.media ? s.media : baseURL, s.mediaRange, periodSegIdx);
-                    segStartTime += s.d;
+                if (isNaN(representation.segmentDuration) && !isDynamic) {//
+                  seg = getTimeBasedSegment.call(self, representation, segStartTime, s.d, representation.timescale,//
+                            s.media ? s.media : baseURL, s.mediaRange, periodSegIdx);//
+                  RTVsegStartTime = segStartTime;//
+                  segStartTime += s.d;//
 
-                } else {
+                } else {//
                     seg = getIndexBasedSegment.call(self, representation, periodSegIdx);
                     seg.replacementTime = (start + periodSegIdx - 1) * representation.segmentDuration;
                     seg.media = s.media ? s.media : baseURL;
@@ -588,6 +591,33 @@ Dash.dependencies.DashHandler = function () {
 
                 seg.index = s.index;
                 seg.indexRange = s.indexRange;
+
+
+                //RTV making obj for manifest segment data to be passed to chunks//
+                var segExist = false;
+                for(var i = 0; i < RTVDash.manifestSegments.length; i++){
+                  if(RTVDash.manifestSegments[i].segName === seg.media){
+                    segExist = true;
+                    RTVDash.manifestSegments[i] = {
+                      segName : seg.media,
+                      segStartTime : RTVsegStartTime,
+                      timescale : representation.timescale,
+                      segEndTime : RTVsegStartTime + s.d,
+                      segIndex : periodSegIdx
+                    };
+                  }
+                }
+
+                if(!segExist){
+                  RTVDash.manifestSegments.push({
+                    segName : seg.media,
+                    segStartTime : RTVsegStartTime,
+                    timescale : representation.timescale,
+                    segEndTime : RTVsegStartTime + s.d,
+                    segIndex : periodSegIdx
+                  });
+                }
+                //--------------------------------------------------------------
 
                 segments.push(seg);
                 seg = null;

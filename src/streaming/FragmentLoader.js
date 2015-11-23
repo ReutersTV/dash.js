@@ -106,6 +106,7 @@ MediaPlayer.dependencies.FragmentLoader = function () {
 
                 req.open("GET", self.requestModifierExt.modifyRequestURL(request.url), true);
                 req.responseType = "arraybuffer";
+                req.rtUri = request.url;
                 req = self.requestModifierExt.modifyRequestHeader(req);
 /*
                 req.setRequestHeader("Cache-Control", "no-cache");
@@ -143,8 +144,16 @@ MediaPlayer.dependencies.FragmentLoader = function () {
                 req.onload = function () {
                     if (req.status < 200 || req.status > 299) return;
 
+                    var dataBytes = req.response.slice(0);
+                    if( !isNaN( RTVDash.requestIndex( req.rtUri ) ) ){
+
+                        RTVDash.setBoxes(  dataBytes,
+                                         RTVDash.requestIndex( req.rtUri ),//event.currentTarget.responseURL ),
+                                         RTVDash.getTime()( { url : req.rtUri, select:"start" }, true ),
+                                         event.currentTarget.responseURL );
+                    }
                     handleLoaded(request, true);
-                    self.notify(MediaPlayer.dependencies.FragmentLoader.eventList.ENAME_LOADING_COMPLETED, {request: request, response: req.response});
+                    self.notify(MediaPlayer.dependencies.FragmentLoader.eventList.ENAME_LOADING_COMPLETED, {request: request, response: dataBytes});
                 };
 
                 req.onloadend = req.onerror = function () {
