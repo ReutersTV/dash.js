@@ -4,13 +4,14 @@
     <meta charset="utf-8"/>
     <title>Dash JavaScript Player</title>
     <meta name="description" content="" />
-    <link rel="icon" type="image/png" href="http://dashpg.com/w/2012/09/dashif.ico" />
+    <link rel="icon" type="image/x-icon" href="http://dashif.org/wp-content/uploads/2014/12/dashif.ico" />
     <meta name="viewport" content="width=device-width, height=device-height, user-scalable=no">
 
     <link rel="stylesheet" href="app/lib/bootstrap/css/bootstrap.min.css">
     <link rel="stylesheet" href="app/lib/bootstrap/css/bootstrap-glyphicons.css">
     <link rel="stylesheet" href="app/lib/angular.treeview/css/angular.treeview.css">
     <link rel="stylesheet" href="app/css/main.css">
+    <link rel="stylesheet" href="../../contrib/akamai/controlbar/controlbar.css">
 
     <!-- http://jquery.com/ -->
     <script src="app/lib/jquery/jquery-1.10.2.min.js"></script>
@@ -34,8 +35,6 @@
     <!-- Misc Libs -->
     <script src="../../src/lib/xml2json.js"></script>
     <script src="../../src/lib/objectiron.js"></script>
-    <script src="../../src/lib/long.js"></script>
-    <script src="../../src/lib/Math.js"></script>
 
     <!-- http://www.flotcharts.org/ -->
     <script src="app/lib/flot/jquery.flot.js"></script>
@@ -55,12 +54,15 @@
     <script src="../../src/streaming/utils/VirtualBuffer.js"></script>
     <script src="../../src/streaming/utils/BoxParser.js"></script>
     <script src="../../src/streaming/utils/IsoFile.js"></script>
+    <script src="../../src/streaming/utils/RNG.js"></script>
     <script src="../../src/streaming/extensions/RequestModifierExtensions.js"></script>
     <script src="../../src/streaming/models/VideoModel.js"></script>
     <script src="../../src/streaming/vo/FragmentRequest.js"></script>
     <script src="../../src/streaming/vo/TrackInfo.js"></script>
+    <script src="../../src/streaming/vo/TextTrackInfo.js"></script>
     <script src="../../src/streaming/vo/MediaInfo.js"></script>
     <script src="../../src/streaming/vo/StreamInfo.js"></script>
+    <script src="../../src/streaming/vo/TextTrackInfo.js"></script>
     <script src="../../src/streaming/vo/ManifestInfo.js"></script>
     <script src="../../src/streaming/vo/Event.js"></script>
     <script src="../../src/streaming/vo/Error.js"></script>
@@ -134,7 +136,6 @@
 
     <script src="../../src/streaming/rules/ABRRules/InsufficientBufferRule.js"></script>
     <script src="../../src/streaming/rules/ABRRules/ABRRulesCollection.js"></script>
-    <script src="../../src/streaming/rules/ABRRules/BufferOccupancyRule.js"></script>
     <script src="../../src/streaming/rules/ABRRules/ThroughputRule.js"></script>
     <script src="../../src/streaming/rules/ABRRules/AbandonRequestsRule.js"></script>
 
@@ -166,8 +167,30 @@
     <script src="../../src/streaming/vo/metrics/TCPConnection.js"></script>
     <script src="../../src/streaming/vo/metrics/DroppedFrames.js"></script>
     <script src="../../src/streaming/vo/metrics/SchedulingInfo.js"></script>
+    <script src="../../src/streaming/vo/metrics/RequestsQueue.js"></script>
     <script src="../../src/streaming/vo/metrics/ManifestUpdate.js"></script>
     <script src="../../src/streaming/vo/metrics/DVRInfo.js"></script>
+    <script src="../../src/streaming/vo/metrics/DVBErrors.js"></script>
+
+    <!-- Reporting -->
+    <script src="../../src/streaming/controllers/MetricsController.js"></script>
+    <script src="../../src/streaming/controllers/MetricsCollectionController.js"></script>
+    <script src="../../src/streaming/metrics/RangeController.js"></script>
+    <script src="../../src/streaming/metrics/MetricsHandlersController.js"></script>
+    <script src="../../src/streaming/metrics/ReportingController.js"></script>
+
+    <script src="../../src/streaming/metrics/reporting/ReportingFactory.js"></script>
+    <script src="../../src/streaming/metrics/reporting/reporters/DVBReporting.js"></script>
+
+    <script src="../../src/streaming/metrics/metrics/MetricsHandlerFactory.js"></script>
+    <script src="../../src/streaming/metrics/metrics/handlers/BufferLevel.js"></script>
+    <script src="../../src/streaming/metrics/metrics/handlers/DVBErrors.js"></script>
+    <script src="../../src/streaming/metrics/metrics/handlers/GenericMetricHandler.js"></script>
+    <script src="../../src/streaming/metrics/metrics/handlers/HttpList.js"></script>
+    <script src="../../src/streaming/metrics/metrics/handlers/PlayList.js"></script>
+
+    <script src="../../src/streaming/metrics/utils/MetricSerialiser.js"></script>
+    <script src="../../src/streaming/metrics/utils/HandlerHelpers.js"></script>
 
     <!-- Dash -->
     <script src="../../src/dash/Dash.js"></script>
@@ -180,6 +203,9 @@
     <script src="../../src/dash/vo/Event.js"></script>
     <script src="../../src/dash/vo/EventStream.js"></script>
     <script src="../../src/dash/vo/UTCTiming.js"></script>
+    <script src="../../src/dash/vo/Metrics.js"></script>
+    <script src="../../src/dash/vo/Range.js"></script>
+    <script src="../../src/dash/vo/Reporting.js"></script>
     <script src="../../src/dash/DashParser.js"></script>
     <script src="../../src/dash/DashHandler.js"></script>
     <script src="../../src/dash/controllers/RepresentationController.js"></script>
@@ -192,6 +218,7 @@
 
     <!-- App -->
     <script src="app/metrics.js"></script>
+    <script src="../../contrib/akamai/controlbar/ControlBar.js"></script>
     <script src="app/main.js"></script>
 </head>
 <body ng-controller="DashController">
@@ -267,7 +294,34 @@
 
         <div class="row">
             <div class="dash-video-player col-md-9">
-                <video controls="true"></video>
+                <div id="videoContainer">
+                    <video controls="true" autoplay="true"></video>
+                    <div id="video-caption"></div>
+                    <div id="videoController" class="video-controller unselectable">
+                        <div id="playPauseBtn" class="btn-play-pause" title="Play/Pause">
+                            <span id="iconPlayPause" class="icon-play"></span>
+                        </div>
+                        <span id="videoTime" class="time-display">00:00:00</span>
+
+                        <div id="fullscreenBtn" class="btn-fullscreen" title="Fullscreen">
+                            <span class="icon-fullscreen-enter"></span>
+                        </div>
+                        <input type="range" id="volumebar" class="volumebar" value="1" min="0" max="1" step=".01" />
+
+                        <div id="muteBtn" class="btn-mute" title="Mute">
+                            <span id="iconMute" class="icon-mute-off"></span>
+                        </div>
+                        <div id="captionBtn" class="btn-caption" title="Closed Caption">
+                            <span class="icon-caption"></span>
+                        </div>
+
+                        <span id="videoDuration" class="duration-display">00:00:00</span>
+
+                        <div class="seekContainer">
+                            <input type="range" id="seekbar" value="0" class="seekbar" min="0" step="0.01"/>
+                        </div>
+                    </div>
+                </div>
             </div>
             <div class="col-md-3">
                 <div class="panel">
@@ -520,6 +574,7 @@
                                     <li><a href="#stream-metrics" tabindex="-1" data-toggle="tab">Stream</a></li>
                                 </ul>
                             </li>
+                            <li><a href="#requests" data-toggle="tab">Requests</a></li>
                             <li><a href="#notes" data-toggle="tab">Release Notes</a></li>
                         </ul>
                         <div id="debugTabContent" class="tab-content">
@@ -567,6 +622,53 @@
                                     data-node-label="text"
                                     data-node-children="items">
                                 </div>
+                            </div>
+                            <div class="tab-pane" id="requests">
+                                <div class="video-requests col-md-4">
+                                    <div>Pending Requests (Video)</div>
+                                    <ul ng-repeat = "request in videoRequestsQueue.pendingRequests">
+                                        <li>{{request.startTime}}</li>
+                                    </ul>
+                                    <div>Loading Requests (Video)</div>
+                                    <ul ng-repeat = "request in videoRequestsQueue.loadingRequests">
+                                        <li>{{request.startTime}}</li>
+                                    </ul>
+                                    <div>Executed Requests (Video)</div>
+                                    <ul ng-repeat = "request in videoRequestsQueue.executedRequests">
+                                        <li>{{request.startTime}}</li>
+                                    </ul>
+                                    <div>Rejected Requests (Video)</div>
+                                    <ul ng-repeat = "request in videoRequestsQueue.rejectedRequests">
+                                        <li>{{request.startTime}}</li>
+                                    </ul>
+                                </div>
+
+                                <div class="audio-requests col-md-4">
+                                    <div>Pending Requests (Audio)</div>
+                                    <ul ng-repeat = "request in audioRequestsQueue.pendingRequests">
+                                        <li>{{request.startTime}}</li>
+                                    </ul>
+                                    <div>Loading Requests (Audio)</div>
+                                    <ul ng-repeat = "request in audioRequestsQueue.loadingRequests">
+                                        <li>{{request.startTime}}</li>
+                                    </ul>
+                                    <div>Executed Requests (Audio)</div>
+                                    <ul ng-repeat = "request in audioRequestsQueue.executedRequests">
+                                        <li>{{request.startTime}}</li>
+                                    </ul>
+                                    <div>Rejected Requests (Audio)</div>
+                                    <ul ng-repeat = "request in audioRequestsQueue.rejectedRequests">
+                                        <li>{{request.startTime}}</li>
+                                    </ul>
+                                </div>
+
+                                <div class="buffered-ranges col-md-4">
+                                    <div>Buffered Ranges (Video + Audio)</div>
+                                    <ul ng-repeat = "bufferedRange in bufferedRanges">
+                                        <li>{{bufferedRange}}</li>
+                                    </ul>
+                                </div>
+
                             </div>
                             <div class="tab-pane" id="notes">
                                 <div ng-repeat="note in releaseNotes" class="note-box">

@@ -46,6 +46,7 @@ var app = angular.module('DashPlayer', [
 app.controller('DashController', function($scope, Sources, Notes, Contributors, PlayerLibraries, ShowcaseLibraries) {
     var player,
         video,
+        controlbar,
         context;
 
     $scope.drmData = [];
@@ -81,9 +82,12 @@ app.controller('DashController', function($scope, Sources, Notes, Contributors, 
 
     player.startup();
     player.addEventListener(MediaPlayer.events.ERROR, onError.bind(this));
-
     player.attachView(video);
+    player.attachVideoContainer(document.getElementById("videoContainer"));
     player.setAutoPlay(true);
+    controlbar = new ControlBar(player, video);
+    controlbar.initialize();
+    controlbar.disable() //controlbar.hide() // other option
 
     function getUrlVars() {
         var vars = {};
@@ -127,6 +131,8 @@ app.controller('DashController', function($scope, Sources, Notes, Contributors, 
         }
         player.attachSource($scope.selectedItem.url, null, protectionData);
         player.setAutoSwitchQuality($scope.abrEnabled);
+        controlbar.reset();
+        controlbar.enable();
     };
 
     $scope.getLoadedMessage = function(session) {
